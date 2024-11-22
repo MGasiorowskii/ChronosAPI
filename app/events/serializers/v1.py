@@ -8,10 +8,13 @@ from accounts.models import User
 from events.models import ConferenceRoom, CalendarEvent
 
 
+MAX_MEETING_DURATION_HOURS = 8
+
+
 class ConferenceRoomSerializer(serializers.ModelSerializer):
     class Meta:
         model = ConferenceRoom
-        fields = ["id", "name", "address"]
+        fields = ["id", "name", "address", "manager"]
 
 
 class CalendarEventSerializer(serializers.ModelSerializer):
@@ -36,7 +39,7 @@ class CalendarEventSerializer(serializers.ModelSerializer):
     def to_representation(self, instance):
         data = super().to_representation(instance)
         data["location"] = instance.location.address if instance.location else None
-        data["participants"] = instance.participants.values_list("email", flat=True)
+        data["participants"] = [p.email for p in instance.participants.all()]
         return data
 
     def validate(self, data):
@@ -55,11 +58,14 @@ class CalendarEventSerializer(serializers.ModelSerializer):
         if start and end:
             if start >= end:
                 return {"time": "The start time must be earlier than the end time."}
-            elif end - start > timedelta(hours=8):
+            elif end - start > timedelta(hours=MAX_MEETING_DURATION_HOURS):
                 return {"time": "The meeting duration cannot be longer than 8 hours."}
         return {}
 
     def create(self, validated_data):
         validated_data["owner"] = self.context["request"].user
-        validated_data["participants"] = User.objects.filter(email__in=validated_data["participants"])
+        validated_data["participants"] = User.objects.filter(
+            email__in=validated_data["participants"],
+            company_id=self.context["request"].user.company_id,
+        )
         return super().create(validated_data)

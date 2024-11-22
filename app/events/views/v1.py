@@ -1,4 +1,8 @@
+from datetime import datetime
+
+import pytz
 from django.db.models import Q
+from django.db.models.functions import TruncDate
 from rest_framework.viewsets import GenericViewSet
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.mixins import ListModelMixin, RetrieveModelMixin, CreateModelMixin
@@ -28,7 +32,7 @@ class CalendarEventViewSet(BaseViewSet):
         queryset = super().get_queryset()
         return (
             queryset.filter(owner__company_id=self.request.user.company_id)
-            .select_related("location")
+            .select_related("location", "owner")
             .prefetch_related("participants")
         ).distinct()
 
@@ -54,7 +58,13 @@ class CalendarEventViewSet(BaseViewSet):
 
     def filter_by_day(self, queryset):
         if day := self.request.query_params.get("day"):
-            queryset = queryset.filter(Q(start__date=day) | Q(end__date=day))
+            user_tz = pytz.timezone(self.request.user.timezone)
+            queryset = (
+                queryset.annotate(
+                    tz_start=TruncDate("start", tzinfo=user_tz),
+                    tz_end=TruncDate("end", tzinfo=user_tz),
+                )
+                .filter(Q(tz_start=day) | Q(tz_end=day)))
         return queryset
 
     def filter_by_location(self, queryset):
